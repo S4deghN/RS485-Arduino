@@ -8,6 +8,8 @@
         "new": "cpp",
         "ostream": "cpp",
         "sstream": "cpp",
-        "streambuf": "cpp"
+        "streambuf": "cpp",
+        "cstddef": "cpp",
+        "functional": "cpp"
     }
 }

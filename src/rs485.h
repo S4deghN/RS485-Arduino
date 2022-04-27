@@ -1,17 +1,32 @@
 #include <Arduino.h>
 
+
+
 class Rs485 : public HardwareSerial {
 public:
     using HardwareSerial::HardwareSerial;
 
-    static int _tx_complete_irq_RS(serial_t *obj);
     size_t write(const uint8_t *buffer, size_t size) override; 
+    void setEnPin(uint32_t enPin);
+
+    static int _tx_complete_irq_rs485(serial_t *obj);
 };
 
-int Rs485::_tx_complete_irq_RS(serial_t *obj)
+
+void Rs485::setEnPin(uint32_t enPin) {
+  PinName pinName = digitalPinToPinName(enPin);
+  GPIO_TypeDef *port = get_GPIO_Port(STM_PORT(pinName));
+  uint32_t pinIndex = STM_LL_GPIO_PIN(pinName);
+  _serial.port = port;
+  _serial.pin_ix = pinIndex;
+
+  pinMode(enPin, OUTPUT);
+}
+
+
+int Rs485::_tx_complete_irq_rs485(serial_t *obj)
 {
   size_t remaining_data;
-  digitalWrite(PE10, HIGH);
   // previous HAL transfer is finished, move tail pointer accordingly
   obj->tx_tail = (obj->tx_tail + obj->tx_size) % SERIAL_TX_BUFFER_SIZE;
 
@@ -23,9 +38,11 @@ int Rs485::_tx_complete_irq_RS(serial_t *obj)
     // because HAL is not able to manage rollover
     obj->tx_size = min(remaining_data,
                        (size_t)(SERIAL_TX_BUFFER_SIZE - obj->tx_tail));
-    uart_attach_tx_callback(obj, _tx_complete_irq_RS, obj->tx_size);
+    uart_attach_tx_callback(obj, _tx_complete_irq_rs485, obj->tx_size);
     return -1;
   }
+
+  LL_GPIO_ResetOutputPin(obj->port, obj->pin_ix);
   return 0;
 }
 
@@ -72,12 +89,14 @@ size_t Rs485::write(const uint8_t *buffer, size_t size)
 
   // Transfer data with HAL only is there is no TX data transfer ongoing
   // otherwise, data transfer will be done asynchronously from callback
+  LL_GPIO_SetOutputPin(_serial.port, _serial.pin_ix);
   if (!serial_tx_active(&_serial)) {
     // note: tx_size correspond to size of HAL data transfer,
     // not the total amount of data in the buffer.
     // To compute size of data in buffer compare head and tail
     _serial.tx_size = size_intermediate;
-    uart_attach_tx_callback(&_serial, _tx_complete_irq_RS, size_intermediate);
+    // uart_attach_tx_callback(&_serial, _tx_complete_irq_RS485, size_intermediate);
+    uart_attach_tx_callback(&_serial, _tx_complete_irq_rs485, size_intermediate);
   }
 
   /* There is no real error management so just return transfer size requested*/
